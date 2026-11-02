@@ -53,6 +53,7 @@ let obstacleSpeed = 300;
 
 let obstacleTimer = 0;
 let obstacleInterval = 100/60;
+let obstacleElapsedTime = 0;
 
 let gameOver = false;
 
@@ -65,6 +66,19 @@ liangchanjiImage.src = "assets/liangchanji.png";
 // 分数系统
 let score = 0;
 let scoreTimer = 0;
+
+const milestoneMusic = new Audio("assets/bgm.mp3");
+milestoneMusic.preload = "auto";
+let milestoneMusicStarted = false;
+
+function playMilestoneMusic() {
+    if (milestoneMusicStarted) return;
+    milestoneMusicStarted = true;
+    milestoneMusic.play().catch(function(error) {
+        milestoneMusicStarted = false;
+        console.warn("100分音乐播放失败：", error);
+    });
+}
 
 
 // .....自定义函数区.....
@@ -146,9 +160,13 @@ function createObstacle() {
 }
 
 function randomObstacleInterval() {
-    return 0.7+Math.random()*1.2;
+    // 前 30 秒逐渐缩短随机生成间隔，最短保持 0.7 秒。
+    const progress = Math.min(obstacleElapsedTime / 30, 1);
+    const maxInterval = 1.9 - 0.9 * progress;
+    return 0.7 + Math.random() * (maxInterval - 0.7);
 }
 function updateObstacles(deltatime) {
+    obstacleElapsedTime += deltatime;
     obstacleTimer+=deltatime;
     // 定时生成障碍物
     if (obstacleTimer >= obstacleInterval) {
@@ -157,6 +175,7 @@ function updateObstacles(deltatime) {
         obstacleInterval = randomObstacleInterval();
     }
     // 所有障碍物向左移动
+    obstacleSpeed =Math.min(obstacleSpeed + 8*deltatime, 600);
     for (let obstacle of obstacles) {
         obstacle.x -= obstacleSpeed * deltatime;
 
@@ -240,7 +259,12 @@ function checkCollision() {
             obstacleBox.width += 5;
         }
         if (obstacle.type === "liangchanji") {
-            obstacleBox.x -= 2;
+            obstacleBox.x -= 8;
+            // 量产机碰撞箱四边各向内收缩 5 像素，高度再减少 4 像素。
+            obstacleBox.x += 5;
+            obstacleBox.y += 5;
+            obstacleBox.width -= 10;
+            obstacleBox.height -= 14;
         }
         if (
             dinoBox.x < obstacleBox.x + obstacleBox.width &&
@@ -338,6 +362,7 @@ function drawBackground() {
             // 五秒后文字消失：首次显示时开始计时，五秒后不再绘制。
             if (messageStartTime === null) {
                 messageStartTime = performance.now();
+                playMilestoneMusic();
             }
             if (performance.now() - messageStartTime < 5000) {
                 ctx.save();
@@ -393,20 +418,13 @@ function gameLoop(timestamp) {
 
 // .....事件响应函数区.....
 document.addEventListener("keydown", function(event) {
-
-    if (event.code === "Space" && gamestart && !gameOver && !isJumping) {
-
-        event.preventDefault();
-
-        isJumping = true;
-        upspeed = -jumpForce;
-
-    }
-
-
+    if (event.code !== "Space") return;
+    event.preventDefault();
+    if (event.repeat) return;
+    handleGameAction();
 });
 
-document.addEventListener("click", function() {
+function handleGameAction() {
     if (gameOver) {
         window.location.reload();
         return;
@@ -416,10 +434,24 @@ document.addEventListener("click", function() {
         score = 0;
         scoreTimer = 0;
         obstacleTimer = 0;
+        obstacleElapsedTime = 0;
         lastFrameTime = null;
         gamestart = true;
+        return;
     }
-});
+
+    // 若浏览器拦截自动播放，下次点击或按空格时重试。
+    if (score >= 100 && messageStartTime !== null) {
+        playMilestoneMusic();
+    }
+
+    if (!isJumping) {
+        isJumping = true;
+        upspeed = -jumpForce;
+    }
+}
+
+document.addEventListener("click", handleGameAction);
 
 // .....初始化函数区.....
 function init() {
