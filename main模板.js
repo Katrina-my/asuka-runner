@@ -36,8 +36,8 @@ let asukaWidth = 60;
 let asukaHeight = 60;
 
 let upspeed = 0;
-let gravity = 0.5;
-let jumpForce = 10;
+let gravity = 1800;
+let jumpForce = 600;
 let isJumping = false;
 
 let runTime = 0;
@@ -49,12 +49,14 @@ meiQiuImage.src = "assets/meiqiu.png";
 
 let obstacles = [];
 
-let obstacleSpeed = 5;
+let obstacleSpeed = 300;
 
 let obstacleTimer = 0;
-let obstacleInterval = 100;
+let obstacleInterval = 100/60;
 
 let gameOver = false;
+
+let gamestart = false;
 
 //障碍物量产机
 let liangchanjiImage = new Image();
@@ -63,10 +65,27 @@ liangchanjiImage.src = "assets/liangchanji.png";
 // 分数系统
 let score = 0;
 let scoreTimer = 0;
-let lastScoreTime = Date.now();
 
 
 // .....自定义函数区.....
+function drawsStartScreen() {
+    ctx.save();
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = "white";
+    ctx.font = "48px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("Click to Start Game", canvas.width / 2, canvas.height / 2);
+
+    ctx.font = "24px Arial";
+    ctx.fillText("Space to Jump", canvas.width / 2, canvas.height / 2 + 50);
+
+    ctx.restore();
+
+
+}
+
 function initOffscreen() {
 
     offCtx.fillStyle = "black";
@@ -126,16 +145,20 @@ function createObstacle() {
     obstacles.push(obstacle);
 }
 
-function updateObstacles() {
-    obstacleTimer++;
+function randomObstacleInterval() {
+    return 0.7+Math.random()*1.2;
+}
+function updateObstacles(deltatime) {
+    obstacleTimer+=deltatime;
     // 定时生成障碍物
     if (obstacleTimer >= obstacleInterval) {
         createObstacle();
         obstacleTimer = 0;
+        obstacleInterval = randomObstacleInterval();
     }
     // 所有障碍物向左移动
-    for (let i = 0; i < obstacles.length; i++) {
-        obstacles[i].x -= obstacleSpeed;
+    for (let obstacle of obstacles) {
+        obstacle.x -= obstacleSpeed * deltatime;
 
     }
 
@@ -183,8 +206,8 @@ function checkCollision() {
     let dinoBox = {
         x: asukaX + 12,
         y: asukaY + 8,
-        width: asukaWidth - 24,
-        height: asukaHeight - 12
+        width: asukaWidth - 30,
+        height: asukaHeight - 20
     };
 
     for (let obstacle of obstacles) {
@@ -204,7 +227,21 @@ function checkCollision() {
                 height: obstacle.height - 40
             };
         }
-
+        if (obstacle.type === "liangchanji" && obstacle.isHigh) {
+            obstacleBox = {
+                x: obstacle.x + 20,
+                y: obstacle.y + 20,
+                width: obstacle.width - 40,
+                height: obstacle.height - 40
+            };
+        }
+        if (obstacle.type === "liangchanji" || obstacle.type === "meiQiu") {
+            obstacleBox.x -= 5;
+            obstacleBox.width += 5;
+        }
+        if (obstacle.type === "liangchanji") {
+            obstacleBox.x -= 2;
+        }
         if (
             dinoBox.x < obstacleBox.x + obstacleBox.width &&
             dinoBox.x + dinoBox.width > obstacleBox.x &&
@@ -251,9 +288,9 @@ function draw() {
 }
 
 
-function update() {
-    asukaY += upspeed;
-    upspeed += gravity;
+function update(deltatime) {
+    asukaY += upspeed * deltatime;
+    upspeed += gravity * deltatime;
 
     if (asukaY >= groundY - asukaHeight) {
         asukaY = groundY - asukaHeight;
@@ -262,20 +299,25 @@ function update() {
 
     }
     if (!isJumping) {
-        runTime += runSpeed;
+        runTime += runSpeed * deltatime * 60;
     }
-    let now = Date.now();
-    if (now - lastScoreTime > 1000) {
-        score++;
-        lastScoreTime = now;
-    }
-    updateObstacles();
+ 
+    updateObstacles(deltatime);
     checkCollision();
+
+    if (!gameOver) {
+        scoreTimer += deltatime;
+        const earnedPoints = Math.floor(scoreTimer);
+        score += earnedPoints;
+        scoreTimer -= earnedPoints;
+    }
 
 }
 
+let messageStartTime = null;
+
 function drawBackground() {
-    if (score < 20) {
+    if (score < 100) {
         if (background1.complete && background1.naturalWidth > 0) {
             ctx.drawImage(
                 background1,
@@ -293,43 +335,66 @@ function drawBackground() {
                 canvas.width,
                 canvas.height
             );
+            // 五秒后文字消失：首次显示时开始计时，五秒后不再绘制。
+            if (messageStartTime === null) {
+                messageStartTime = performance.now();
+            }
+            if (performance.now() - messageStartTime < 5000) {
+                ctx.save();
+                ctx.font = '32px "幼圆", "微软雅黑", sans-serif';
+                ctx.textAlign = "center";
+                ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
+                ctx.shadowBlur = 6;
+                ctx.shadowOffsetX = 3;
+                ctx.shadowOffsetY = 3;
+                ctx.strokeStyle = "#9d3b70";
+                ctx.lineWidth = 1;
+                ctx.strokeText("谢谢你玩我的游戏！:)", canvas.width / 2, canvas.height / 2);
+                ctx.fillStyle = "#ff99cc";
+                ctx.fillText("谢谢你玩我的游戏！:)", canvas.width / 2, canvas.height / 2);
+                ctx.restore();
+            }
         }
 
     }
 
 }
-function gameLoop() {
+let lastFrameTime = null;
+function gameLoop(timestamp) {
+    // 开始界面只绘制，不更新游戏状态。
+    if (!gamestart) {
+        drawsStartScreen();
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+    if (gameOver) return;
 
-  if (gameOver) {
+    // 点击后的第一帧从零开始，不计入等待开始的时间。
+    let deltatime = lastFrameTime === null ? 0 : (timestamp - lastFrameTime) / 1000;
+    lastFrameTime = timestamp;
+    deltatime = Math.min(deltatime, 0.05);
+
+    update(deltatime);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
     drawBackground();
     draw();
 
-    ctx.fillStyle = "red";
-    ctx.font = "30px Arial";
-    ctx.fillText("GAME OVER", 300, 120);
-
-    return;
-}
-    ctx.clearRect(
-        0, 0,
-        canvas.width,
-        canvas.height
-    );
-
-    update();
-    drawBackground();
-    draw();
+    if (gameOver) {
+        ctx.fillStyle = "red";
+        ctx.font = "30px Arial";
+        ctx.fillText("GAME OVER", 300, 120);
+        ctx.font = "20px Arial";
+        ctx.fillText("Click to Restart", 320, 160);
+        return;
+    }
 
     requestAnimationFrame(gameLoop);
 }
 
-
 // .....事件响应函数区.....
 document.addEventListener("keydown", function(event) {
 
-    if (event.code === "Space" && !isJumping) {
+    if (event.code === "Space" && gamestart && !gameOver && !isJumping) {
 
         event.preventDefault();
 
@@ -338,18 +403,34 @@ document.addEventListener("keydown", function(event) {
 
     }
 
+
 });
 
+document.addEventListener("click", function() {
+    if (gameOver) {
+        window.location.reload();
+        return;
+    }
+
+    if (!gamestart) {
+        score = 0;
+        scoreTimer = 0;
+        obstacleTimer = 0;
+        lastFrameTime = null;
+        gamestart = true;
+    }
+});
 
 // .....初始化函数区.....
 function init() {
 
     console.log("页面初始化");
+    gamestart = false;
 
     // 初始化离屏画布
     initOffscreen();
 
-    gameLoop();
+    requestAnimationFrame(gameLoop);
 
 }
 
